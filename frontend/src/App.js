@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
 import './App.css';
 import StudentForm from './component/StudentForm.jsx';
-
-const API = 'http://localhost:5000/api';
 
 // Navbar Component
 const Navbar = () => {
@@ -21,26 +18,8 @@ const Navbar = () => {
 };
 
 // Home Page - List of All Students
-const Home = () => {
-  const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const res = await axios.get(`${API}/students`);
-        setStudents(res.data);
-      } catch (error) {
-        console.error('Error loading students:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStudents();
-  }, []);
-
-  if (loading) return <div className="loading">Loading...</div>;
+const Home = ({ students }) => {
+  if (!students) return <div className="loading">Loading...</div>;
 
   return (
     <div className="container">
@@ -50,7 +29,7 @@ const Home = () => {
           <p>No students found</p>
         ) : (
           students.map(student => (
-            <div className="student-item" key={student._id}>
+            <div className="student-item" key={student.studentId}>
               <div className="student-details">
                 <h3>{student.firstName} {student.lastName}</h3>
                 <p>ID: {student.studentId}</p>
@@ -66,7 +45,7 @@ const Home = () => {
 };
 
 // Add Student Page
-const AddStudent = () => {
+const AddStudent = ({ students, setStudents }) => {
   const [form, setForm] = useState({
     studentId: '',
     firstName: '',
@@ -90,41 +69,55 @@ const AddStudent = () => {
     }));
   };
 
-  const handleFile = (e) => {
-    // Remove file upload support for now
-    // setForm(prev => ({ ...prev, profilePhoto: e.target.files[0] }));
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setLoading(true);
 
-    try {
-      // Remove profilePhoto from submission for now
-      const { profilePhoto, ...submitData } = form;
-      await axios.post(`${API}/students`, submitData);
-      setMessage('Student added successfully');
-      setForm({
-        studentId: '',
-        firstName: '',
-        lastName: '',
-        email: '',
-        dob: '',
-        department: '',
-        enrollmentYear: '',
-        isActive: true,
-        profilePhoto: null,
-      });
-      setTimeout(() => navigate('/'), 1500);
-    } catch (error) {
-      setMessage('Failed to add student');
-    } finally {
+    // Validate unique studentId and email
+    if (students.some(s => s.studentId === form.studentId)) {
+      setMessage('Student ID must be unique');
       setLoading(false);
+      return;
     }
-  };
+    if (students.some(s => s.email === form.email)) {
+      setMessage('Email must be unique');
+      setLoading(false);
+      return;
+    }
 
-  const handleCancelEdit = () => {
-    // No edit mode here, so no action needed
+    // Validate enrollmentYear is a number
+    const enrollmentYearNum = Number(form.enrollmentYear);
+    if (isNaN(enrollmentYearNum) || enrollmentYearNum <= 0) {
+      setMessage('Enrollment Year must be a valid positive number');
+      setLoading(false);
+      return;
+    }
+
+    const newStudent = {
+      ...form,
+      enrollmentYear: enrollmentYearNum,
+    };
+
+    setStudents(prev => {
+      const updated = [newStudent, ...prev];
+      localStorage.setItem('students', JSON.stringify(updated));
+      return updated;
+    });
+
+    setMessage('Student added successfully');
+    setForm({
+      studentId: '',
+      firstName: '',
+      lastName: '',
+      email: '',
+      dob: '',
+      department: '',
+      enrollmentYear: '',
+      isActive: true,
+      profilePhoto: null,
+    });
+    setLoading(false);
+    setTimeout(() => navigate('/'), 1500);
   };
 
   return (
@@ -135,9 +128,7 @@ const AddStudent = () => {
         form={form}
         editingStudentId={null}
         handleChange={handleChange}
-        handleFile={handleFile}
         handleSubmit={handleSubmit}
-        handleCancelEdit={handleCancelEdit}
         loading={loading}
       />
     </div>
@@ -145,43 +136,18 @@ const AddStudent = () => {
 };
 
 // Manage Students Page
-const ManageStudents = () => {
-  const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
+const ManageStudents = ({ students, setStudents }) => {
+  const [message, setMessage] = React.useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchStudents();
-  }, []);
-
-  const fetchStudents = async () => {
-    try {
-      const res = await axios.get(`${API}/students`);
-      setStudents(res.data);
-    } catch (error) {
-      console.error('Error loading students:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async (id) => {
+  const handleDelete = (studentId) => {
     if (window.confirm('Are you sure you want to delete this student?')) {
-      setLoading(true);
-      try {
-        await axios.delete(`${API}/students/${id}`);
-        setMessage('Student deleted successfully');
-        fetchStudents();
-      } catch (error) {
-        setMessage('Failed to delete student');
-      } finally {
-        setLoading(false);
-      }
+      const updated = students.filter(s => s.studentId !== studentId);
+      setStudents(updated);
+      localStorage.setItem('students', JSON.stringify(updated));
+      setMessage('Student deleted successfully');
     }
   };
-
-  if (loading && students.length === 0) return <div className="loading">Loading...</div>;
 
   return (
     <div className="container">
@@ -201,13 +167,13 @@ const ManageStudents = () => {
             <tr><td colSpan="4">No students found</td></tr>
           ) : (
             students.map(student => (
-              <tr key={student._id}>
+              <tr key={student.studentId}>
                 <td>{student.studentId}</td>
                 <td>{student.firstName} {student.lastName}</td>
                 <td>{student.department || 'N/A'}</td>
                 <td>
-                  <button className="edit-btn" onClick={() => navigate(`/edit/${student._id}`)}>Edit</button>
-                  <button className="delete-btn" onClick={() => handleDelete(student._id)}>Delete</button>
+                  <button className="edit-btn" onClick={() => navigate(`/edit/${student.studentId}`)}>Edit</button>
+                  <button className="delete-btn" onClick={() => handleDelete(student.studentId)}>Delete</button>
                 </td>
               </tr>
             ))
@@ -219,7 +185,7 @@ const ManageStudents = () => {
 };
 
 // Edit Student Page
-const EditStudent = () => {
+const EditStudent = ({ students, setStudents }) => {
   const { id } = useParams();
   const [form, setForm] = useState({
     studentId: '',
@@ -237,29 +203,21 @@ const EditStudent = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchStudent = async () => {
-      try {
-        const res = await axios.get(`${API}/students/${id}`);
-        const student = res.data;
-        setForm({
-          studentId: student.studentId || '',
-          firstName: student.firstName || '',
-          lastName: student.lastName || '',
-          email: student.email || '',
-          dob: student.dob ? student.dob.substring(0, 10) : '',
-          department: student.department || '',
-          enrollmentYear: student.enrollmentYear || '',
-          isActive: student.isActive ?? true,
-        });
-      } catch (error) {
-        console.error('Error loading student:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStudent();
-  }, [id]);
+    const student = students.find(s => s.studentId === id);
+    if (student) {
+      setForm({
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        email: student.email,
+        dob: student.dob,
+        department: student.department,
+        enrollmentYear: student.enrollmentYear,
+        isActive: student.isActive,
+      });
+    }
+    setLoading(false);
+  }, [id, students]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -269,19 +227,42 @@ const EditStudent = () => {
     }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setSubmitting(true);
 
-    try {
-      await axios.put(`${API}/students/${id}`, form);
-      setMessage('Student updated successfully');
-      setTimeout(() => navigate('/manage'), 1500);
-    } catch (error) {
-      setMessage('Failed to update student');
-    } finally {
+    // Validate unique studentId and email except current student
+    if (students.some(s => s.studentId === form.studentId && s.studentId !== id)) {
+      setMessage('Student ID must be unique');
       setSubmitting(false);
+      return;
     }
+    if (students.some(s => s.email === form.email && s.studentId !== id)) {
+      setMessage('Email must be unique');
+      setSubmitting(false);
+      return;
+    }
+
+    // Validate enrollmentYear is a number
+    const enrollmentYearNum = Number(form.enrollmentYear);
+    if (isNaN(enrollmentYearNum) || enrollmentYearNum <= 0) {
+      setMessage('Enrollment Year must be a valid positive number');
+      setSubmitting(false);
+      return;
+    }
+
+    const updatedStudent = {
+      ...form,
+      enrollmentYear: enrollmentYearNum,
+    };
+
+    const updatedStudents = students.map(s => s.studentId === id ? updatedStudent : s);
+    setStudents(updatedStudents);
+    localStorage.setItem('students', JSON.stringify(updatedStudents));
+
+    setMessage('Student updated successfully');
+    setSubmitting(false);
+    setTimeout(() => navigate('/manage'), 1500);
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -345,16 +326,21 @@ const EditStudent = () => {
 
 // Main App Component
 const App = () => {
+  const [students, setStudents] = useState(() => {
+    const saved = localStorage.getItem('students');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   return (
     <Router>
       <div className="app">
         <Navbar />
         <main>
           <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/add" element={<AddStudent />} />
-            <Route path="/manage" element={<ManageStudents />} />
-            <Route path="/edit/:id" element={<EditStudent />} />
+            <Route path="/" element={<Home students={students} />} />
+            <Route path="/add" element={<AddStudent students={students} setStudents={setStudents} />} />
+            <Route path="/manage" element={<ManageStudents students={students} setStudents={setStudents} />} />
+            <Route path="/edit/:id" element={<EditStudent students={students} setStudents={setStudents} />} />
           </Routes>
         </main>
         <footer>
